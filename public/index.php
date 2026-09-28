@@ -19,7 +19,7 @@ if (!isset($_FILES['pdf'])) {
 
 try {
     $result = $app['application']->run(
-        function (string $path) use ($app): string {
+        function (string $path): string {
             $upload = new PdfUpload();
 
             return $upload->save(
@@ -30,8 +30,13 @@ try {
         }
     );
 
-    echo 'Upload recebido: ' . strlen($result) . ' bytes';
+    header('Content-Type: application/pdf');
+    header('Content-Length: ' . strlen($result));
+    header('Content-Disposition: attachment; filename="resultado.pdf"');
+
+    echo $result;
 } catch (Throwable $exception) {
     http_response_code(400);
+    header('Content-Type: text/plain; charset=UTF-8');
     echo $exception->getMessage();
 }
