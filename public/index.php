@@ -17,16 +17,51 @@ if (!isset($_FILES['pdf'])) {
     exit;
 }
 
+if (!is_array($_FILES['pdf']['name'])) {
+    http_response_code(400);
+    echo 'Envie dois ou mais arquivos PDF.';
+    exit;
+}
+
 try {
     $result = $app['application']->run(
-        function (string $path): string {
+        function (string $path) use ($app): string {
             $upload = new PdfUpload();
 
-            return $upload->save(
-                $_FILES['pdf'],
-                $path,
-                'entrada.pdf'
+            $inputFiles = [];
+
+            foreach ($_FILES['pdf']['name'] as $index => $name) {
+                $file = [
+                    'name' => $_FILES['pdf']['name'][$index],
+                    'type' => $_FILES['pdf']['type'][$index],
+                    'tmp_name' => $_FILES['pdf']['tmp_name'][$index],
+                    'error' => $_FILES['pdf']['error'][$index],
+                    'size' => $_FILES['pdf']['size'][$index],
+                ];
+
+                $inputFiles[] = $upload->save(
+                    $file,
+                    $path,
+                    'entrada-' . $index . '.pdf'
+                );
+            }
+
+            if (count($inputFiles) < 2) {
+                throw new InvalidArgumentException(
+                    'É necessário enviar pelo menos dois arquivos PDF.'
+                );
+            }
+
+            $outputFile = $path . '/resultado.pdf';
+
+            $merge = new PdfMerge($app['process']);
+
+            $merge->merge(
+                $inputFiles,
+                $outputFile
             );
+
+            return $outputFile;
         }
     );
 
