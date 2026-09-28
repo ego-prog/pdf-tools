@@ -11,57 +11,95 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+$operation = $_POST['operation'] ?? '';
+
 if (!isset($_FILES['pdf'])) {
     http_response_code(400);
     echo 'Nenhum PDF enviado.';
     exit;
 }
 
-if (!is_array($_FILES['pdf']['name'])) {
-    http_response_code(400);
-    echo 'Envie dois ou mais arquivos PDF.';
-    exit;
-}
-
 try {
     $result = $app['application']->run(
-        function (string $path) use ($app): string {
+        function (string $path) use ($app, $operation): string {
             $upload = new PdfUpload();
 
-            $inputFiles = [];
+            if ($operation === 'merge') {
+                if (!is_array($_FILES['pdf']['name'])) {
+                    throw new InvalidArgumentException(
+                        'Envie dois ou mais arquivos PDF.'
+                    );
+                }
 
-            foreach ($_FILES['pdf']['name'] as $index => $name) {
-                $file = [
-                    'name' => $_FILES['pdf']['name'][$index],
-                    'type' => $_FILES['pdf']['type'][$index],
-                    'tmp_name' => $_FILES['pdf']['tmp_name'][$index],
-                    'error' => $_FILES['pdf']['error'][$index],
-                    'size' => $_FILES['pdf']['size'][$index],
-                ];
+                $inputFiles = [];
 
-                $inputFiles[] = $upload->save(
-                    $file,
+                foreach ($_FILES['pdf']['name'] as $index => $name) {
+                    $file = [
+                        'name' => $_FILES['pdf']['name'][$index],
+                        'type' => $_FILES['pdf']['type'][$index],
+                        'tmp_name' => $_FILES['pdf']['tmp_name'][$index],
+                        'error' => $_FILES['pdf']['error'][$index],
+                        'size' => $_FILES['pdf']['size'][$index],
+                    ];
+
+                    $inputFiles[] = $upload->save(
+                        $file,
+                        $path,
+                        'entrada-' . $index . '.pdf'
+                    );
+                }
+
+                if (count($inputFiles) < 2) {
+                    throw new InvalidArgumentException(
+                        'É necessário enviar pelo menos dois arquivos PDF.'
+                    );
+                }
+
+                $outputFile = $path . '/resultado.pdf';
+
+                $merge = new PdfMerge($app['process']);
+
+                $merge->merge(
+                    $inputFiles,
+                    $outputFile
+                );
+
+                return $outputFile;
+            }
+
+            if ($operation === 'compress') {
+                if (is_array($_FILES['pdf']['name'])) {
+                    throw new InvalidArgumentException(
+                        'Envie apenas um PDF para compactação.'
+                    );
+                }
+
+                $inputFile = $upload->save(
+                    $_FILES['pdf'],
                     $path,
-                    'entrada-' . $index . '.pdf'
+                    'entrada.pdf'
                 );
+
+                $outputFile = $path . '/resultado.pdf';
+
+                $level = $_POST['level'] ?? 'media';
+
+                $compress = new PdfCompress(
+                    $app['process']
+                );
+
+                $compress->compress(
+                    $inputFile,
+                    $outputFile,
+                    $level
+                );
+
+                return $outputFile;
             }
 
-            if (count($inputFiles) < 2) {
-                throw new InvalidArgumentException(
-                    'É necessário enviar pelo menos dois arquivos PDF.'
-                );
-            }
-
-            $outputFile = $path . '/resultado.pdf';
-
-            $merge = new PdfMerge($app['process']);
-
-            $merge->merge(
-                $inputFiles,
-                $outputFile
+            throw new InvalidArgumentException(
+                'Operação inválida.'
             );
-
-            return $outputFile;
         }
     );
 
