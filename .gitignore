@@ -1,0 +1,6 @@
+/storage/tmp/*
+!/storage/tmp/.gitkeep
+
+.env
+*.log
+.DS_Store
