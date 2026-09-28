@@ -31,10 +31,10 @@ final class PdfProcess
             $exitCode
         );
 
-        if ($exitCode !== 0) {
+        if ($exitCode !== 0 && $exitCode !== 3) {
             throw new RuntimeException(
                 "Falha ao executar PDF Tools.\n" .
-                implode("\n", $output)
+                    implode("\n", $output)
             );
         }
     }
