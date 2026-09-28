@@ -32,6 +32,7 @@ try {
                 }
 
                 $inputFiles = [];
+                $passwords = [];
 
                 foreach ($_FILES['pdf']['name'] as $index => $name) {
                     $file = [
@@ -42,13 +43,20 @@ try {
                         'size' => $_FILES['pdf']['size'][$index],
                     ];
 
-                    $inputFiles[] = $upload->save(
+                    $inputFile = $upload->save(
                         $file,
                         $path,
                         'entrada-' . $index . '.pdf'
                     );
-                }
 
+                    $inputFiles[] = $inputFile;
+
+                    $password = $_POST['password'][$index] ?? '';
+
+                    if ($password !== '') {
+                        $passwords[$inputFile] = $password;
+                    }
+                }
                 if (count($inputFiles) < 2) {
                     throw new InvalidArgumentException(
                         'É necessário enviar pelo menos dois arquivos PDF.'
@@ -61,7 +69,8 @@ try {
 
                 $merge->merge(
                     $inputFiles,
-                    $outputFile
+                    $outputFile,
+                    $passwords
                 );
 
                 return $outputFile;

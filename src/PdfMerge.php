@@ -11,9 +11,13 @@ final class PdfMerge
 
     /**
      * @param string[] $inputFiles
+     * @param array<string, string> $passwords
      */
-    public function merge(array $inputFiles, string $outputFile): void
-    {
+    public function merge(
+        array $inputFiles,
+        string $outputFile,
+        array $passwords = []
+    ): void {
         if (count($inputFiles) < 2) {
             throw new InvalidArgumentException(
                 'É necessário informar pelo menos dois arquivos PDF.'
@@ -36,10 +40,18 @@ final class PdfMerge
             $this->process->qpdf(),
             '--empty',
             '--pages',
-            ...$inputFiles,
-            '--',
-            $outputFile,
         ];
+
+        foreach ($inputFiles as $inputFile) {
+            $command[] = $inputFile;
+
+            if (isset($passwords[$inputFile])) {
+                $command[] = '--password=' . $passwords[$inputFile];
+            }
+        }
+
+        $command[] = '--';
+        $command[] = $outputFile;
 
         $this->process->run($command);
 
