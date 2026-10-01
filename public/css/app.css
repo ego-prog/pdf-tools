@@ -31,13 +31,20 @@ h1 {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
+
 .dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 180px;
+    padding: 32px 20px;
     border: 2px dashed #aaa;
     border-radius: 8px;
-    padding: 40px 20px;
     text-align: center;
     cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
+    transition: border-color .2s, background .2s;
 }
 
 .dropzone:hover,
@@ -54,6 +61,12 @@ h1 {
     display: block;
     margin-bottom: 8px;
     font-size: 18px;
+}
+
+.dropzone span {
+    display: block;
+    line-height: 1.5;
+    color: #666;
 }
 
 .file-list {
