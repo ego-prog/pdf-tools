@@ -18,7 +18,8 @@ final class PdfCompress
     public function compress(
         string $inputFile,
         string $outputFile,
-        string $level = 'media'
+        string $level = 'media',
+        string $password = ''
     ): void {
         $this->validateInputFile($inputFile);
 
@@ -51,6 +52,9 @@ final class PdfCompress
             '-dNOPAUSE',
             '-dSAFER',
             '-sDEVICE=pdfwrite',
+            '-dCompatibilityLevel=1.5',
+            '-dDetectDuplicateImages=true',
+            '-dCompressFonts=true',
 
             '-dDownsampleColorImages=true',
             '-dColorImageResolution=' . $resolution,
@@ -60,10 +64,15 @@ final class PdfCompress
 
             '-dDownsampleMonoImages=true',
             '-dMonoImageResolution=' . $resolution,
-
-            '-sOutputFile=' . $outputFile,
-            $inputFile,
         ];
+
+        // Senha de abertura, se houver.
+        if ($password !== '') {
+            $command[] = '-sPDFPassword=' . $password;
+        }
+
+        $command[] = '-sOutputFile=' . $outputFile;
+        $command[] = $inputFile;
 
         $this->process->run($command);
 

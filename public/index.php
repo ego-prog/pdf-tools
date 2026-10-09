@@ -6,6 +6,9 @@ require __DIR__ . '/../src/bootstrap.php';
 
 $app = require __DIR__ . '/../src/application.php';
 
+/* ============================================================
+ * GET — renderiza a interface
+ * ============================================================ */
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 ?>
     <!DOCTYPE html>
@@ -23,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
         <main class="container">
             <h1>PDF Tools</h1>
-            <p class="subtitle">Una arquivos PDF de forma local e temporária.</p>
+            <p class="subtitle">Ferramentas locais e temporárias para PDFs.</p>
 
             <section class="panel">
 
@@ -40,6 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                         class="tool-button"
                         id="compressTool">
                         Compactar PDF
+                    </button>
+
+                    <button
+                        type="button"
+                        class="tool-button"
+                        id="removeTool">
+                        Remover senha
                     </button>
                 </div>
 
@@ -70,6 +80,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                         <option value="media" selected>Média</option>
                         <option value="alta">Alta</option>
                     </select>
+
+                </div>
+
+                <div
+                    class="single-password-options"
+                    id="singlePasswordOptions"
+                    hidden>
+
+                    <label for="singlePassword">
+                        Senha do PDF (se houver)
+                    </label>
+
+                    <input
+                        type="password"
+                        id="singlePassword"
+                        placeholder="Senha">
 
                 </div>
 
@@ -113,6 +139,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     exit;
 }
 
+/* ============================================================
+ * Validação básica do POST
+ * ============================================================ */
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo 'Método não permitido.';
@@ -121,113 +150,223 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $operation = $_POST['operation'] ?? '';
 
+$validOperations = ['merge', 'compress', 'remove_password'];
+
+if (!in_array($operation, $validOperations, true)) {
+    http_response_code(400);
+    echo 'Operação inválida.';
+    exit;
+}
+
 if (!isset($_FILES['pdf'])) {
     http_response_code(400);
     echo 'Nenhum PDF enviado.';
     exit;
 }
 
+/* ============================================================
+ * Processamento
+ * ============================================================ */
 try {
-    $result = $app['application']->run(
+    $app['application']->run(
         function (string $path) use ($app, $operation): string {
-            $upload = new PdfUpload();
+            $upload  = new PdfUpload();
+            $process = $app['process'];
 
-            if ($operation === 'merge') {
-                if (!is_array($_FILES['pdf']['name'])) {
-                    throw new InvalidArgumentException(
-                        'Envie dois ou mais arquivos PDF.'
-                    );
-                }
+            return match ($operation) {
+                'merge'           => handleMerge($upload, $process, $path),
+                'compress'        => handleCompress($upload, $process, $path),
+                'remove_password' => handleRemovePassword($upload, $process, $path),
+            };
+        },
+        function (string $resultPath): void {
+            header('Content-Type: application/pdf');
+            header('Content-Length: ' . filesize($resultPath));
+            header('Content-Disposition: attachment; filename="resultado.pdf"');
+            header('Cache-Control: no-store');
 
-                $inputFiles = [];
-                $passwords = [];
-
-                foreach ($_FILES['pdf']['name'] as $index => $name) {
-                    $file = [
-                        'name' => $_FILES['pdf']['name'][$index],
-                        'type' => $_FILES['pdf']['type'][$index],
-                        'tmp_name' => $_FILES['pdf']['tmp_name'][$index],
-                        'error' => $_FILES['pdf']['error'][$index],
-                        'size' => $_FILES['pdf']['size'][$index],
-                    ];
-
-                    $inputFile = $upload->save(
-                        $file,
-                        $path,
-                        'entrada-' . $index . '.pdf'
-                    );
-
-                    $inputFiles[] = $inputFile;
-
-                    $password = $_POST['password'][$index] ?? '';
-
-                    if ($password !== '') {
-                        $passwords[$inputFile] = $password;
-                    }
-                }
-
-                if (count($inputFiles) < 2) {
-                    throw new InvalidArgumentException(
-                        'É necessário enviar pelo menos dois arquivos PDF.'
-                    );
-                }
-
-                $outputFile = $path . '/resultado.pdf';
-
-                $merge = new PdfMerge($app['process']);
-
-                $merge->merge(
-                    $inputFiles,
-                    $outputFile,
-                    $passwords
-                );
-
-                return $outputFile;
-            }
-
-            if ($operation === 'compress') {
-                if (is_array($_FILES['pdf']['name'])) {
-                    throw new InvalidArgumentException(
-                        'Envie apenas um PDF para compactação.'
-                    );
-                }
-
-                $inputFile = $upload->save(
-                    $_FILES['pdf'],
-                    $path,
-                    'entrada.pdf'
-                );
-
-                $outputFile = $path . '/resultado.pdf';
-
-                $level = $_POST['level'] ?? 'media';
-
-                $compress = new PdfCompress(
-                    $app['process']
-                );
-
-                $compress->compress(
-                    $inputFile,
-                    $outputFile,
-                    $level
-                );
-
-                return $outputFile;
-            }
-
-            throw new InvalidArgumentException(
-                'Operação inválida.'
-            );
+            readfile($resultPath);
         }
     );
+} catch (PasswordRequiredException $exception) {
+    if (!headers_sent()) {
+        http_response_code(422);
+        header('Content-Type: application/json; charset=UTF-8');
+    }
 
-    header('Content-Type: application/pdf');
-    header('Content-Length: ' . strlen($result));
-    header('Content-Disposition: attachment; filename="resultado.pdf"');
-
-    echo $result;
+    echo json_encode([
+        'error'   => 'password_required',
+        'indices' => $exception->indices,
+        'message' => $exception->getMessage(),
+    ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $exception) {
-    http_response_code(400);
-    header('Content-Type: text/plain; charset=UTF-8');
+    if (!headers_sent()) {
+        http_response_code(400);
+        header('Content-Type: text/plain; charset=UTF-8');
+    }
+
     echo $exception->getMessage();
+}
+
+/* ============================================================
+ * Handlers
+ * ============================================================ */
+
+/**
+ * Une vários PDFs. Senhas por arquivo em $_POST['password'][index].
+ */
+function handleMerge(PdfUpload $upload, PdfProcess $process, string $path): string
+{
+    if (!is_array($_FILES['pdf']['name'])) {
+        throw new InvalidArgumentException(
+            'Envie dois ou mais arquivos PDF.'
+        );
+    }
+
+    $inputFiles = [];
+    $passwords  = [];
+
+    foreach ($_FILES['pdf']['name'] as $index => $name) {
+        $file = [
+            'name'     => $_FILES['pdf']['name'][$index],
+            'type'     => $_FILES['pdf']['type'][$index],
+            'tmp_name' => $_FILES['pdf']['tmp_name'][$index],
+            'error'    => $_FILES['pdf']['error'][$index],
+            'size'     => $_FILES['pdf']['size'][$index],
+        ];
+
+        $inputFile = $upload->save(
+            $file,
+            $path,
+            'entrada-' . $index . '.pdf'
+        );
+
+        $inputFiles[] = $inputFile;
+
+        $password = $_POST['password'][$index] ?? '';
+
+        if ($password !== '') {
+            $passwords[$inputFile] = $password;
+        }
+    }
+
+    if (count($inputFiles) < 2) {
+        throw new InvalidArgumentException(
+            'É necessário enviar pelo menos dois arquivos PDF.'
+        );
+    }
+
+    // Detecta arquivos que exigem senha e não receberam nenhuma.
+    $missing = detectMissingPasswords($process, $inputFiles, $passwords);
+
+    if ($missing !== []) {
+        throw new PasswordRequiredException($missing);
+    }
+
+    $outputFile = $path . '/resultado.pdf';
+
+    (new PdfMerge($process))->merge(
+        $inputFiles,
+        $outputFile,
+        $passwords
+    );
+
+    return $outputFile;
+}
+
+/**
+ * Compacta um único PDF. Senha opcional em $_POST['password'].
+ */
+function handleCompress(PdfUpload $upload, PdfProcess $process, string $path): string
+{
+    if (is_array($_FILES['pdf']['name'])) {
+        throw new InvalidArgumentException(
+            'Envie apenas um PDF para compactação.'
+        );
+    }
+
+    $inputFile = $upload->save($_FILES['pdf'], $path, 'entrada.pdf');
+
+    $password = $_POST['password'] ?? '';
+
+    // Se o PDF exige senha e nenhuma foi enviada → pede.
+    if ($password === '' && $process->passwordRequired($inputFile)) {
+        throw new PasswordRequiredException([0]);
+    }
+
+    $outputFile = $path . '/resultado.pdf';
+    $level      = $_POST['level'] ?? 'media';
+
+    (new PdfCompress($process))->compress(
+        $inputFile,
+        $outputFile,
+        $level,
+        $password
+    );
+
+    return $outputFile;
+}
+
+/**
+ * Remove a senha de um PDF. Senha obrigatória em $_POST['password'].
+ */
+function handleRemovePassword(PdfUpload $upload, PdfProcess $process, string $path): string
+{
+    if (is_array($_FILES['pdf']['name'])) {
+        throw new InvalidArgumentException(
+            'Envie apenas um PDF para remover a senha.'
+        );
+    }
+
+    $inputFile = $upload->save($_FILES['pdf'], $path, 'entrada.pdf');
+
+    // Se o PDF não tem senha, não há nada a remover.
+    if (!$process->passwordRequired($inputFile)) {
+        throw new InvalidArgumentException(
+            'Este PDF não possui senha para remover.'
+        );
+    }
+
+    $password = $_POST['password'] ?? '';
+
+    if ($password === '') {
+        throw new PasswordRequiredException([0]);
+    }
+
+    $outputFile = $path . '/resultado.pdf';
+
+    (new PdfRemovePassword($process))->removePassword(
+        $inputFile,
+        $outputFile,
+        $password
+    );
+
+    return $outputFile;
+}
+
+/**
+ * Retorna os índices dos arquivos que exigem senha e não receberam nenhuma.
+ *
+ * @param string[]              $inputFiles
+ * @param array<string, string> $passwords
+ * @return int[]
+ */
+function detectMissingPasswords(
+    PdfProcess $process,
+    array $inputFiles,
+    array $passwords
+): array {
+    $missing = [];
+
+    foreach ($inputFiles as $index => $inputFile) {
+        if (isset($passwords[$inputFile])) {
+            continue;   // senha já fornecida — deixa o qpdf validar
+        }
+
+        if ($process->passwordRequired($inputFile)) {
+            $missing[] = $index;
+        }
+    }
+
+    return $missing;
 }

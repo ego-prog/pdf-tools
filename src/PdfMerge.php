@@ -6,12 +6,11 @@ final class PdfMerge
 {
     public function __construct(
         private readonly PdfProcess $process
-    ) {
-    }
+    ) {}
 
     /**
-     * @param string[] $inputFiles
-     * @param array<string, string> $passwords
+     * @param string[]              $inputFiles
+     * @param array<string, string> $passwords  Mapa caminho => senha
      */
     public function merge(
         array $inputFiles,
@@ -43,9 +42,10 @@ final class PdfMerge
         ];
 
         foreach ($inputFiles as $inputFile) {
+            // ✅ ORDEM CORRETA: arquivo primeiro, depois --password
             $command[] = $inputFile;
 
-            if (isset($passwords[$inputFile])) {
+            if (isset($passwords[$inputFile]) && $passwords[$inputFile] !== '') {
                 $command[] = '--password=' . $passwords[$inputFile];
             }
         }
@@ -53,7 +53,7 @@ final class PdfMerge
         $command[] = '--';
         $command[] = $outputFile;
 
-        $this->process->run($command);
+        $this->process->run($command, allowWarnings: true);
 
         if (!is_file($outputFile) || filesize($outputFile) === 0) {
             throw new RuntimeException(

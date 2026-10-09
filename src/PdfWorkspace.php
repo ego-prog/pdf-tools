@@ -56,22 +56,45 @@ final class PdfWorkspace
         return $this->path;
     }
 
+    /**
+     * Remove o workspace temporário.
+     *
+     * Nunca lança exceção — falhas são apenas registradas no error_log.
+     * Isso é intencional: cleanup roda em finally, e uma exceção aqui
+     * mascararia o erro original da operação.
+     */
     public function cleanup(): void
     {
         if ($this->path === '' || !is_dir($this->path)) {
+            $this->path = '';
             return;
         }
 
-        $this->removeDirectory($this->path);
-
-        $this->path = '';
+        try {
+            $this->removeDirectory($this->path);
+        } catch (Throwable $exception) {
+            // Só registra, não propaga.
+            error_log(
+                'Falha ao limpar workspace: ' . $exception->getMessage()
+            );
+        } finally {
+            $this->path = '';
+        }
     }
 
+    /**
+     * Remove um diretório recursivamente.
+     *
+     * Não lança exceção: falhas individuais (arquivo já removido,
+     * permissão negada, etc.) são apenas registradas no error_log.
+     */
     private function removeDirectory(string $directory): void
     {
-        $items = scandir($directory);
+        $items = @scandir($directory);
 
         if ($items === false) {
+            // Diretório já não existe ou não pode ser lido.
+            error_log("Não foi possível listar diretório: {$directory}");
             return;
         }
 
@@ -82,14 +105,26 @@ final class PdfWorkspace
 
             $path = $directory . '/' . $item;
 
-            if (is_dir($path)) {
+            // Usa lstat para não seguir symlinks.
+            $stat = @lstat($path);
+
+            if ($stat === false) {
+                // Sumiu entre scandir e lstat — TOCTOU.
+                continue;
+            }
+
+            if (is_dir($path) && !is_link($path)) {
                 $this->removeDirectory($path);
                 continue;
             }
 
-            unlink($path);
+            if (!@unlink($path)) {
+                error_log("Falha ao remover arquivo: {$path}");
+            }
         }
 
-        rmdir($directory);
+        if (!@rmdir($directory)) {
+            error_log("Falha ao remover diretório: {$directory}");
+        }
     }
 }

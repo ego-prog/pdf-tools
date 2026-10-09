@@ -4,12 +4,16 @@ const fileList = document.getElementById('fileList');
 
 const mergeTool = document.getElementById('mergeTool');
 const compressTool = document.getElementById('compressTool');
+const removeTool = document.getElementById('removeTool');
 
 const mergeButton = document.getElementById('mergeButton');
 const clearButton = document.getElementById('clearButton');
 
 const compressionOptions = document.getElementById('compressionOptions');
 const compressionLevel = document.getElementById('compressionLevel');
+
+const singlePasswordOptions = document.getElementById('singlePasswordOptions');
+const singlePassword = document.getElementById('singlePassword');
 
 const dropzoneTitle = document.getElementById('dropzoneTitle');
 const dropzoneText = document.getElementById('dropzoneText');
@@ -19,15 +23,22 @@ const message = document.getElementById('message');
 let files = [];
 let operation = 'merge';
 
+/* ------------------------------------------------------------
+ * Alternância entre ferramentas
+ * ---------------------------------------------------------- */
 function setOperation(newOperation) {
     operation = newOperation;
 
     const isMerge = operation === 'merge';
+    const isCompress = operation === 'compress';
+    const isRemove = operation === 'remove_password';
 
     mergeTool.classList.toggle('active', isMerge);
-    compressTool.classList.toggle('active', !isMerge);
+    compressTool.classList.toggle('active', isCompress);
+    removeTool.classList.toggle('active', isRemove);
 
-    compressionOptions.hidden = isMerge;
+    compressionOptions.hidden = !isCompress;
+    singlePasswordOptions.hidden = isMerge;
 
     fileInput.multiple = isMerge;
 
@@ -36,12 +47,19 @@ function setOperation(newOperation) {
         dropzoneText.textContent =
             'Clique aqui ou arraste os arquivos para esta área.';
         mergeButton.textContent = 'Unir PDFs';
-    } else {
+    } else if (isCompress) {
         dropzoneTitle.textContent = 'Selecione um arquivo PDF';
         dropzoneText.textContent =
             'Clique aqui ou arraste um PDF para esta área.';
         mergeButton.textContent = 'Compactar PDF';
+    } else {
+        dropzoneTitle.textContent = 'Selecione um arquivo PDF protegido';
+        dropzoneText.textContent =
+            'Clique aqui ou arraste um PDF para esta área.';
+        mergeButton.textContent = 'Remover senha';
     }
+
+    singlePassword.value = '';
 
     files = [];
 
@@ -49,14 +67,13 @@ function setOperation(newOperation) {
     clearMessage();
 }
 
-mergeTool.addEventListener('click', () => {
-    setOperation('merge');
-});
+mergeTool.addEventListener('click', () => setOperation('merge'));
+compressTool.addEventListener('click', () => setOperation('compress'));
+removeTool.addEventListener('click', () => setOperation('remove_password'));
 
-compressTool.addEventListener('click', () => {
-    setOperation('compress');
-});
-
+/* ------------------------------------------------------------
+ * Mensagens
+ * ---------------------------------------------------------- */
 function showMessage(text, type) {
     message.textContent = text;
     message.className = 'message ' + type;
@@ -67,8 +84,11 @@ function clearMessage() {
     message.className = 'message';
 }
 
+/* ------------------------------------------------------------
+ * Adicionar arquivos
+ * ---------------------------------------------------------- */
 function addFiles(selectedFiles) {
-    if (operation === 'compress') {
+    if (operation !== 'merge') {
         const file = selectedFiles[0];
 
         if (!file || file.type !== 'application/pdf') {
@@ -76,11 +96,7 @@ function addFiles(selectedFiles) {
             return;
         }
 
-        files = [{
-            file: file,
-            password: ''
-        }];
-
+        files = [{ file: file, password: '' }];
         renderFiles();
         clearMessage();
         return;
@@ -99,10 +115,7 @@ function addFiles(selectedFiles) {
         );
 
         if (!alreadyExists) {
-            files.push({
-                file: file,
-                password: ''
-            });
+            files.push({ file: file, password: '' });
         }
     }
 
@@ -110,6 +123,9 @@ function addFiles(selectedFiles) {
     clearMessage();
 }
 
+/* ------------------------------------------------------------
+ * Renderização da lista
+ * ---------------------------------------------------------- */
 function renderFiles() {
     fileList.innerHTML = '';
 
@@ -170,19 +186,14 @@ function renderFiles() {
         });
 
         if (operation === 'merge') {
-            const passwordInput =
-                element.querySelector('.password');
+            const passwordInput = element.querySelector('.password');
 
             passwordInput.addEventListener('input', event => {
                 files[index].password = event.target.value;
             });
 
             element.addEventListener('dragstart', event => {
-                event.dataTransfer.setData(
-                    'text/plain',
-                    String(index)
-                );
-
+                event.dataTransfer.setData('text/plain', String(index));
                 element.classList.add('dragging');
             });
 
@@ -201,18 +212,11 @@ function renderFiles() {
                     event.dataTransfer.getData('text/plain')
                 );
 
-                if (
-                    Number.isNaN(fromIndex) ||
-                    fromIndex === index
-                ) {
+                if (Number.isNaN(fromIndex) || fromIndex === index) {
                     return;
                 }
 
-                const [movedFile] = files.splice(
-                    fromIndex,
-                    1
-                );
-
+                const [movedFile] = files.splice(fromIndex, 1);
                 files.splice(index, 0, movedFile);
 
                 renderFiles();
@@ -235,6 +239,57 @@ function escapeHtml(value) {
     return div.innerHTML;
 }
 
+/* ------------------------------------------------------------
+ * Destaques de "senha necessária"
+ * ---------------------------------------------------------- */
+function highlightPasswordRequired(indices) {
+    clearPasswordHighlights();
+
+    indices.forEach(index => {
+        const element = fileList.children[index];
+
+        if (!element) {
+            return;
+        }
+
+        element.classList.add('needs-password');
+
+        const passwordInput = element.querySelector('.password');
+
+        if (passwordInput) {
+            passwordInput.classList.add('required');
+        }
+    });
+
+    const firstInput = fileList.querySelector(
+        '.file-item.needs-password .password'
+    );
+
+    if (firstInput) {
+        firstInput.focus();
+    }
+}
+
+function highlightSinglePasswordRequired() {
+    singlePassword.classList.add('required');
+    singlePassword.focus();
+}
+
+function clearPasswordHighlights() {
+    fileList.querySelectorAll('.needs-password').forEach(el => {
+        el.classList.remove('needs-password');
+    });
+
+    fileList.querySelectorAll('.password.required').forEach(el => {
+        el.classList.remove('required');
+    });
+
+    singlePassword.classList.remove('required');
+}
+
+/* ------------------------------------------------------------
+ * Drag & drop no dropzone
+ * ---------------------------------------------------------- */
 fileInput.addEventListener('change', event => {
     addFiles(event.target.files);
     fileInput.value = '';
@@ -258,10 +313,15 @@ dropzone.addEventListener('drop', event => {
 
 clearButton.addEventListener('click', () => {
     files = [];
+    singlePassword.value = '';
     renderFiles();
     clearMessage();
+    clearPasswordHighlights();
 });
 
+/* ------------------------------------------------------------
+ * Envio
+ * ---------------------------------------------------------- */
 mergeButton.addEventListener('click', async () => {
     if (files.length === 0) {
         return;
@@ -286,21 +346,23 @@ mergeButton.addEventListener('click', async () => {
         }
     } else {
         formData.append('pdf', files[0].file);
-        formData.append(
-            'level',
-            compressionLevel.value
-        );
+        formData.append('password', singlePassword.value);
+
+        if (operation === 'compress') {
+            formData.append('level', compressionLevel.value);
+        }
     }
 
     mergeButton.disabled = true;
     clearButton.disabled = true;
 
-    showMessage(
-        operation === 'merge'
-            ? 'Processando PDFs...'
-            : 'Compactando PDF...',
-        'success'
-    );
+    const labels = {
+        merge: 'Processando PDFs...',
+        compress: 'Compactando PDF...',
+        remove_password: 'Removendo senha...',
+    };
+
+    showMessage(labels[operation], 'success');
 
     try {
         const response = await fetch('', {
@@ -309,14 +371,39 @@ mergeButton.addEventListener('click', async () => {
         });
 
         if (!response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+
+            if (contentType.includes('application/json')) {
+                const data = await response.json();
+
+                if (data.error === 'password_required') {
+                    if (operation === 'merge') {
+                        highlightPasswordRequired(data.indices || []);
+                        showMessage(
+                            'Os arquivos destacados precisam de senha. ' +
+                            'Preencha os campos e tente novamente.',
+                            'error'
+                        );
+                    } else {
+                        highlightSinglePasswordRequired();
+                        showMessage(
+                            'Este PDF precisa de senha. ' +
+                            'Informe a senha e tente novamente.',
+                            'error'
+                        );
+                    }
+                    return;
+                }
+
+                throw new Error(data.message || 'Erro desconhecido.');
+            }
+
             const error = await response.text();
             throw new Error(error);
         }
 
         const blob = await response.blob();
-
         const url = URL.createObjectURL(blob);
-
         const link = document.createElement('a');
 
         link.href = url;
@@ -328,12 +415,14 @@ mergeButton.addEventListener('click', async () => {
 
         URL.revokeObjectURL(url);
 
-        showMessage(
-            operation === 'merge'
-                ? 'PDF criado com sucesso.'
-                : 'PDF compactado com sucesso.',
-            'success'
-        );
+        const successLabels = {
+            merge: 'PDF criado com sucesso.',
+            compress: 'PDF compactado com sucesso.',
+            remove_password: 'Senha removida com sucesso.',
+        };
+
+        showMessage(successLabels[operation], 'success');
+        clearPasswordHighlights();
     } catch (error) {
         showMessage(
             error.message || 'Erro ao processar o PDF.',

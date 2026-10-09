@@ -6,15 +6,14 @@ final class PdfApplication
 {
     public function __construct(
         private readonly PdfWorkspace $workspace
-    ) {
-    }
+    ) {}
 
     /**
      * Executa uma operação dentro de um workspace temporário.
      *
      * @param callable(string): string $operation
      */
-    public function run(callable $operation): string
+    public function run(callable $operation, callable $consumer): void
     {
         $workspacePath = $this->workspace->create();
 
@@ -33,15 +32,9 @@ final class PdfApplication
                 );
             }
 
-            $content = file_get_contents($result);
-
-            if ($content === false) {
-                throw new RuntimeException(
-                    'Não foi possível ler o arquivo de resultado.'
-                );
-            }
-
-            return $content;
+            // Entrega o caminho para quem sabe o que fazer com ele.
+            // O streaming acontece aqui dentro; ao sair, o workspace é limpo.
+            $consumer($result);
         } finally {
             $this->workspace->cleanup();
         }
