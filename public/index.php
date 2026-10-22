@@ -148,6 +148,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// Se post_max_size foi excedido, o PHP descarta $_POST e $_FILES
+// silenciosamente. Damos uma mensagem coerente.
+if (
+    empty($_POST)
+    && empty($_FILES)
+    && ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0)) > 0
+) {
+    http_response_code(413);
+    echo 'O upload excede o tamanho máximo permitido pelo servidor.';
+    exit;
+}
+
 $operation = $_POST['operation'] ?? '';
 
 $validOperations = ['merge', 'compress', 'remove_password'];
@@ -180,6 +192,8 @@ try {
             };
         },
         function (string $resultPath): void {
+            clearstatcache(true, $resultPath);
+
             header('Content-Type: application/pdf');
             header('Content-Length: ' . filesize($resultPath));
             header('Content-Disposition: attachment; filename="resultado.pdf"');

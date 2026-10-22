@@ -242,3 +242,19 @@ button {
         width: 100%;
     }
 }
+
+/* Estilo da mensagem de progresso */
+.message.info {
+    display: block;
+    background: #eef4fb;
+    color: #1a4f8a;
+}
+
+/* cursor correto conforme arrastabilidade */
+.file-item[draggable="true"] {
+    cursor: grab;
+}
+
+.file-item[draggable="false"] {
+    cursor: default;
+}

@@ -25,7 +25,8 @@ final class PdfUpload
             );
         }
 
-        $destination = $destinationDirectory . '/' . $filename;
+        // basename: defesa em profundidade contra path traversal.
+        $destination = $destinationDirectory . '/' . basename($filename);
 
         if (!move_uploaded_file($file['tmp_name'], $destination)) {
             throw new RuntimeException(
@@ -79,9 +80,21 @@ final class PdfUpload
             );
         }
 
-        $mimeType = mime_content_type($file['tmp_name']);
+        // Verificação por magic bytes (%PDF-) é mais confiável do que
+        // mime_content_type(), que pode retornar application/x-pdf ou
+        // application/octet-stream em PDFs válidos.
+        $handle = @fopen($file['tmp_name'], 'rb');
 
-        if ($mimeType !== 'application/pdf') {
+        if ($handle === false) {
+            throw new InvalidArgumentException(
+                'Não foi possível abrir o arquivo enviado.'
+            );
+        }
+
+        $header = fread($handle, 5);
+        fclose($handle);
+
+        if ($header !== '%PDF-') {
             throw new InvalidArgumentException(
                 'Somente arquivos PDF são aceitos.'
             );

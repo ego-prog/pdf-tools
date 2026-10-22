@@ -15,9 +15,11 @@ final class PdfProcess
     /**
      * Executa um comando externo sem passar por shell.
      *
-     * @param string[] $command      Array de argumentos. O primeiro é o binário.
-     * @param bool     $allowWarnings Se true, exit code 3 é tratado como sucesso
-     *                                (usado pelo qpdf, que retorna 3 para warnings).
+     * stderr é redirecionado para stdout para evitar deadlock ao ler
+     * dois pipes (o buffer do pipe não lido pode encher e travar o filho).
+     *
+     * @param string[] $command
+     * @param bool     $allowWarnings exit code 3 do qpdf = warning
      */
     public function run(array $command, bool $allowWarnings = false): void
     {
@@ -28,7 +30,7 @@ final class PdfProcess
         $descriptors = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            2 => ['redirect', 1],   // stderr → stdout
         ];
 
         $process = proc_open($command, $descriptors, $pipes);
@@ -39,14 +41,10 @@ final class PdfProcess
             );
         }
 
-        // Os binários não leem stdin — fechamos imediatamente.
         fclose($pipes[0]);
 
-        $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-
+        $output = stream_get_contents($pipes[1]);
         fclose($pipes[1]);
-        fclose($pipes[2]);
 
         $exitCode = proc_close($process);
 
@@ -54,7 +52,7 @@ final class PdfProcess
             || ($allowWarnings && $exitCode === 3);
 
         if (!$ok) {
-            $output = trim($stdout . "\n" . $stderr);
+            $output = trim((string) $output);
 
             throw new RuntimeException(
                 "Falha ao executar PDF Tools (exit {$exitCode}).\n" . $output
@@ -80,20 +78,18 @@ final class PdfProcess
             );
         }
     }
+
     /**
-     * Verifica se o PDF exige senha para abrir.
-     *
-     * Usa `qpdf --requires-password`, que retorna:
-     *   exit 0 → senha obrigatória
-     *   exit 2 → não precisa de senha
-     *   exit 3 → erro (arquivo inválido, corrompido, etc.)
+     * exit 0 → senha obrigatória
+     * exit 2 → não precisa de senha
+     * exit 3 → erro
      */
     public function passwordRequired(string $file): bool
     {
         $descriptors = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            2 => ['redirect', 1],
         ];
 
         $process = proc_open(
@@ -103,19 +99,17 @@ final class PdfProcess
         );
 
         if (!is_resource($process)) {
-            throw new RuntimeException(
-                'Não foi possível inspecionar o PDF.'
-            );
+            throw new RuntimeException('Não foi possível inspecionar o PDF.');
         }
 
         fclose($pipes[0]);
-        stream_get_contents($pipes[1]);
-        stream_get_contents($pipes[2]);
+        $output = stream_get_contents($pipes[1]);
         fclose($pipes[1]);
-        fclose($pipes[2]);
 
         $exitCode = proc_close($process);
 
+        // 0 → senha obrigatória
+        // 2 → não criptografado
         if ($exitCode === 0) {
             return true;
         }
@@ -124,8 +118,63 @@ final class PdfProcess
             return false;
         }
 
+        // Código 3: avisos. Pode ser um PDF não criptografado com pequenas
+        // inconsistências estruturais (ex.: "reported number of objects").
+        if ($exitCode === 3) {
+            $normalized = strtolower((string) $output);
+
+            // Se a saída fala explicitamente em criptografia/senha,
+            // então o código 3 provavelmente veio do estado de criptografia.
+            if (
+                str_contains($normalized, 'encrypt')
+                || str_contains($normalized, 'password')
+            ) {
+                // Tenta confirmar com --show-encryption, que também emite
+                // "File is not encrypted" para arquivos em claro.
+                return $this->isEncrypted((string) $file);
+            }
+
+            // Caso contrário, é apenas um aviso estrutural. O arquivo
+            // não exige senha para ser aberto.
+            return false;
+        }
+
         throw new RuntimeException(
-            "Não foi possível inspecionar o PDF (código {$exitCode})."
+            "Não foi possível inspecionar o PDF (código {$exitCode}).\n"
+                . trim((string) $output)
         );
+    }
+
+    /**
+     * Retorna true se o PDF estiver criptografado (mesmo que a senha
+     * não seja obrigatória para abrir).
+     */
+    private function isEncrypted(string $file): bool
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['redirect', 1],
+        ];
+
+        $process = proc_open(
+            [$this->qpdf, '--show-encryption', $file],
+            $descriptors,
+            $pipes
+        );
+
+        if (!is_resource($process)) {
+            throw new RuntimeException('Não foi possível inspecionar a criptografia do PDF.');
+        }
+
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+
+        proc_close($process);
+
+        // A documentação do qpdf indica que, para arquivos em claro,
+        // --show-encryption imprime "File is not encrypted".
+        return !str_contains((string) $output, 'File is not encrypted');
     }
 }

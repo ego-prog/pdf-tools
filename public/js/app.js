@@ -14,6 +14,7 @@ const compressionLevel = document.getElementById('compressionLevel');
 
 const singlePasswordOptions = document.getElementById('singlePasswordOptions');
 const singlePassword = document.getElementById('singlePassword');
+const singlePasswordLabel = singlePasswordOptions.querySelector('label');
 
 const dropzoneTitle = document.getElementById('dropzoneTitle');
 const dropzoneText = document.getElementById('dropzoneText');
@@ -40,6 +41,12 @@ function setOperation(newOperation) {
     compressionOptions.hidden = !isCompress;
     singlePasswordOptions.hidden = isMerge;
 
+    if (singlePasswordLabel) {
+        singlePasswordLabel.textContent = isRemove
+            ? 'Senha do PDF'
+            : 'Senha do PDF (se houver)';
+    }
+
     fileInput.multiple = isMerge;
 
     if (isMerge) {
@@ -60,7 +67,6 @@ function setOperation(newOperation) {
     }
 
     singlePassword.value = '';
-
     files = [];
 
     renderFiles();
@@ -153,19 +159,14 @@ function renderFiles() {
                     : ''
             }
 
-            <span class="file-name">
-                ${escapeHtml(item.file.name)}
-            </span>
+            <span class="file-name"></span>
 
             ${
                 operation === 'merge'
-                    ? `
-                        <input
-                            type="password"
-                            class="password"
-                            placeholder="Senha (se houver)"
-                            value="${escapeHtml(item.password)}">
-                    `
+                    ? `<input
+                        type="password"
+                        class="password"
+                        placeholder="Senha (se houver)">`
                     : ''
             }
 
@@ -177,9 +178,10 @@ function renderFiles() {
             </button>
         `;
 
-        const removeButton = element.querySelector('.remove');
+        // textContent evita injeção de HTML no nome do arquivo.
+        element.querySelector('.file-name').textContent = item.file.name;
 
-        removeButton.addEventListener('click', () => {
+        element.querySelector('.remove').addEventListener('click', () => {
             files.splice(index, 1);
             renderFiles();
             clearMessage();
@@ -188,12 +190,17 @@ function renderFiles() {
         if (operation === 'merge') {
             const passwordInput = element.querySelector('.password');
 
+            // Atribuição programática: evita quebra de atributo quando a
+            // senha contém aspas (" ou ').
+            passwordInput.value = item.password;
+
             passwordInput.addEventListener('input', event => {
                 files[index].password = event.target.value;
             });
 
             element.addEventListener('dragstart', event => {
                 event.dataTransfer.setData('text/plain', String(index));
+                event.dataTransfer.effectAllowed = 'move';
                 element.classList.add('dragging');
             });
 
@@ -203,16 +210,26 @@ function renderFiles() {
 
             element.addEventListener('dragover', event => {
                 event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
             });
 
             element.addEventListener('drop', event => {
                 event.preventDefault();
 
-                const fromIndex = Number(
-                    event.dataTransfer.getData('text/plain')
-                );
+                const raw = event.dataTransfer.getData('text/plain');
 
-                if (Number.isNaN(fromIndex) || fromIndex === index) {
+                if (raw === '') {
+                    return;
+                }
+
+                const fromIndex = Number(raw);
+
+                if (
+                    !Number.isInteger(fromIndex) ||
+                    fromIndex < 0 ||
+                    fromIndex >= files.length ||
+                    fromIndex === index
+                ) {
                     return;
                 }
 
@@ -231,12 +248,6 @@ function renderFiles() {
     } else {
         mergeButton.disabled = files.length !== 1;
     }
-}
-
-function escapeHtml(value) {
-    const div = document.createElement('div');
-    div.textContent = value;
-    return div.innerHTML;
 }
 
 /* ------------------------------------------------------------
@@ -328,10 +339,7 @@ mergeButton.addEventListener('click', async () => {
     }
 
     if (operation === 'merge' && files.length < 2) {
-        showMessage(
-            'É necessário selecionar pelo menos dois PDFs.',
-            'error'
-        );
+        showMessage('É necessário selecionar pelo menos dois PDFs.', 'error');
         return;
     }
 
@@ -362,7 +370,7 @@ mergeButton.addEventListener('click', async () => {
         remove_password: 'Removendo senha...',
     };
 
-    showMessage(labels[operation], 'success');
+    showMessage(labels[operation], 'info');
 
     try {
         const response = await fetch('', {
@@ -424,10 +432,7 @@ mergeButton.addEventListener('click', async () => {
         showMessage(successLabels[operation], 'success');
         clearPasswordHighlights();
     } catch (error) {
-        showMessage(
-            error.message || 'Erro ao processar o PDF.',
-            'error'
-        );
+        showMessage(error.message || 'Erro ao processar o PDF.', 'error');
     } finally {
         clearButton.disabled = false;
 
