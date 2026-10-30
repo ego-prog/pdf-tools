@@ -35,25 +35,24 @@ final class PdfMerge
             );
         }
 
-        $command = [
-            $this->process->qpdf(),
+        $arguments = [
             '--empty',
             '--pages',
         ];
 
         foreach ($inputFiles as $inputFile) {
-            // ✅ ORDEM CORRETA: arquivo primeiro, depois --password
-            $command[] = $inputFile;
+            // Dentro de --pages: arquivo primeiro, depois --password
+            $arguments[] = $inputFile;
 
             if (isset($passwords[$inputFile]) && $passwords[$inputFile] !== '') {
-                $command[] = '--password=' . $passwords[$inputFile];
+                $arguments[] = '--password=' . $passwords[$inputFile];
             }
         }
 
-        $command[] = '--';
-        $command[] = $outputFile;
+        $arguments[] = '--';
+        $arguments[] = $outputFile;
 
-        $this->process->run($command, allowWarnings: true);
+        $this->process->runQpdf($arguments, $outputDirectory, allowWarnings: true);
 
         if (!is_file($outputFile) || filesize($outputFile) === 0) {
             throw new RuntimeException(

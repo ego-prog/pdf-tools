@@ -14,7 +14,6 @@ const compressionLevel = document.getElementById('compressionLevel');
 
 const singlePasswordOptions = document.getElementById('singlePasswordOptions');
 const singlePassword = document.getElementById('singlePassword');
-const singlePasswordLabel = singlePasswordOptions.querySelector('label');
 
 const dropzoneTitle = document.getElementById('dropzoneTitle');
 const dropzoneText = document.getElementById('dropzoneText');
@@ -40,12 +39,6 @@ function setOperation(newOperation) {
 
     compressionOptions.hidden = !isCompress;
     singlePasswordOptions.hidden = isMerge;
-
-    if (singlePasswordLabel) {
-        singlePasswordLabel.textContent = isRemove
-            ? 'Senha do PDF'
-            : 'Senha do PDF (se houver)';
-    }
 
     fileInput.multiple = isMerge;
 

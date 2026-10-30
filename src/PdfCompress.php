@@ -18,8 +18,7 @@ final class PdfCompress
     public function compress(
         string $inputFile,
         string $outputFile,
-        string $level = 'media',
-        string $password = ''
+        string $level = 'media'
     ): void {
         $this->validateInputFile($inputFile);
 
@@ -68,11 +67,6 @@ final class PdfCompress
             '-dMonoImageResolution=' . $resolution,
         ];
 
-        // Senha de abertura, se houver.
-        if ($password !== '') {
-            $command[] = '-sPDFPassword=' . $password;
-        }
-
         $command[] = '-sOutputFile=' . $outputFile;
         $command[] = $inputFile;
 
@@ -89,20 +83,11 @@ final class PdfCompress
 
     /**
      * O Ghostscript termina com exit 0 mesmo quando não consegue abrir o
-     * arquivo (senha errada, PDF corrompido), gerando um PDF em branco.
+     * arquivo (PDF protegido, PDF corrompido), gerando um PDF em branco.
      * Por isso a saída precisa ser inspecionada.
      */
     private function assertInputWasRead(string $output): void
     {
-        if (str_contains($output, 'Password did not work')) {
-            throw new PdfToolException(
-                'invalid_password',
-                'A senha informada está incorreta.',
-                422,
-                ['indices' => [0]]
-            );
-        }
-
         if (str_contains($output, 'requires a password')) {
             throw new PasswordRequiredException([0]);
         }

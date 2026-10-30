@@ -11,15 +11,9 @@ final class PdfRemovePassword
     public function removePassword(
         string $inputFile,
         string $outputFile,
-        string $password
+        string $password = ''
     ): void {
         $this->validateInputFile($inputFile);
-
-        if ($password === '') {
-            throw new InvalidArgumentException(
-                'A senha é obrigatória.'
-            );
-        }
 
         $outputDirectory = dirname($outputFile);
 
@@ -35,17 +29,19 @@ final class PdfRemovePassword
             );
         }
 
-        $command = [
-            $this->process->qpdf(),
-            '--password=' . $password,
-            '--decrypt',
-            $inputFile,
-            $outputFile,
-        ];
+        // Senha vazia: PDF só com senha de proprietário, que o qpdf
+        // descriptografa sem precisar dela.
+        $arguments = $password !== ''
+            ? ['--password=' . $password]
+            : [];
+
+        $arguments[] = '--decrypt';
+        $arguments[] = $inputFile;
+        $arguments[] = $outputFile;
 
         // allowWarnings: true — qpdf pode retornar exit 3 para warnings
         // que não impedem a descriptografia.
-        $this->process->run($command, allowWarnings: true);
+        $this->process->runQpdf($arguments, $outputDirectory, allowWarnings: true);
 
         if (!is_file($outputFile) || filesize($outputFile) === 0) {
             throw new RuntimeException(

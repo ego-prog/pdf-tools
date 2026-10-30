@@ -6,7 +6,9 @@ $config = require __DIR__ . '/../config/config.php';
 
 $process = new PdfProcess(
     $config['tools']['qpdf'],
-    $config['tools']['ghostscript']
+    $config['tools']['ghostscript'],
+    $config['tools']['timeout'],
+    $config['process_timeout']
 );
 
 $workspace = new PdfWorkspace(

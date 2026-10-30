@@ -86,9 +86,26 @@ final class PdfService
     ): string {
         $inputFile = $this->upload->save($file, $workspace, 'entrada.pdf');
 
-        // Se o PDF exige senha e nenhuma foi enviada → pede.
-        if ($password === '' && $this->process->passwordRequired($inputFile)) {
-            throw new PasswordRequiredException([0]);
+        if ($this->process->passwordRequired($inputFile)) {
+            if ($password === '') {
+                throw new PasswordRequiredException([0]);
+            }
+
+            // Descriptografa antes com o qpdf: a senha vai num arquivo de
+            // argumentos, e não na linha de comando do Ghostscript.
+            $decryptedFile = $workspace . '/entrada-sem-senha.pdf';
+
+            try {
+                (new PdfRemovePassword($this->process))->removePassword(
+                    $inputFile,
+                    $decryptedFile,
+                    $password
+                );
+            } catch (PdfProcessException $exception) {
+                throw $this->translateQpdfFailure($exception, [$inputFile]);
+            }
+
+            $inputFile = $decryptedFile;
         }
 
         $outputFile = $workspace . '/resultado.pdf';
@@ -96,8 +113,7 @@ final class PdfService
         (new PdfCompress($this->process))->compress(
             $inputFile,
             $outputFile,
-            $level,
-            $password
+            $level
         );
 
         return $outputFile;
@@ -113,16 +129,23 @@ final class PdfService
     ): string {
         $inputFile = $this->upload->save($file, $workspace, 'entrada.pdf');
 
-        // Se o PDF não tem senha, não há nada a remover.
-        if (!$this->process->passwordRequired($inputFile)) {
+        // Se o PDF não é criptografado, não há nada a remover.
+        if (!$this->process->isEncrypted($inputFile)) {
             throw new PdfToolException(
                 'no_password',
                 'Este PDF não possui senha para remover.'
             );
         }
 
-        if ($password === '') {
-            throw new PasswordRequiredException([0]);
+        if ($this->process->passwordRequired($inputFile)) {
+            if ($password === '') {
+                throw new PasswordRequiredException([0]);
+            }
+        } else {
+            // Só senha de proprietário (restringe impressão, cópia etc.):
+            // o qpdf remove sem senha, e uma senha digitada errada faria
+            // a operação falhar à toa.
+            $password = '';
         }
 
         $outputFile = $workspace . '/resultado.pdf';
