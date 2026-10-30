@@ -20,8 +20,9 @@ final class PdfProcess
      *
      * @param string[] $command
      * @param bool     $allowWarnings exit code 3 do qpdf = warning
+     * @return string  Saída combinada (stdout + stderr)
      */
-    public function run(array $command, bool $allowWarnings = false): void
+    public function run(array $command, bool $allowWarnings = false): string
     {
         if ($command === []) {
             throw new RuntimeException('Comando vazio.');
@@ -51,13 +52,13 @@ final class PdfProcess
         $ok = $exitCode === 0
             || ($allowWarnings && $exitCode === 3);
 
-        if (!$ok) {
-            $output = trim((string) $output);
+        $output = trim((string) $output);
 
-            throw new RuntimeException(
-                "Falha ao executar PDF Tools (exit {$exitCode}).\n" . $output
-            );
+        if (!$ok) {
+            throw new PdfProcessException($exitCode, $output);
         }
+
+        return $output;
     }
 
     public function qpdf(): string

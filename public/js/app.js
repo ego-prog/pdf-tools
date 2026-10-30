@@ -403,6 +403,17 @@ mergeButton.addEventListener('click', async () => {
                     return;
                 }
 
+                if (data.error === 'invalid_password') {
+                    if (operation === 'merge') {
+                        highlightPasswordRequired(data.indices || []);
+                    } else {
+                        highlightSinglePasswordRequired();
+                    }
+
+                    showMessage(data.message, 'error');
+                    return;
+                }
+
                 throw new Error(data.message || 'Erro desconhecido.');
             }
 

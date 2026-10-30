@@ -45,31 +45,48 @@ final class PdfUpload
             $file['name'],
             $file['size']
         )) {
-            throw new InvalidArgumentException(
+            throw new PdfToolException(
+                'invalid_request',
                 'Dados de upload inválidos.'
             );
         }
 
+        if (
+            $file['error'] === UPLOAD_ERR_INI_SIZE
+            || $file['error'] === UPLOAD_ERR_FORM_SIZE
+        ) {
+            throw new PdfToolException(
+                'file_too_large',
+                'Arquivo excede o limite de 100 MB.',
+                413
+            );
+        }
+
         if ($file['error'] !== UPLOAD_ERR_OK) {
-            throw new RuntimeException(
+            throw new PdfToolException(
+                'upload_failed',
                 'Falha no upload do arquivo. Código: ' . $file['error']
             );
         }
 
         if (!is_int($file['size'])) {
-            throw new InvalidArgumentException(
+            throw new PdfToolException(
+                'invalid_request',
                 'Tamanho do arquivo inválido.'
             );
         }
 
         if ($file['size'] > self::MAX_SIZE) {
-            throw new InvalidArgumentException(
-                'Arquivo excede o limite de 100 MB.'
+            throw new PdfToolException(
+                'file_too_large',
+                'Arquivo excede o limite de 100 MB.',
+                413
             );
         }
 
         if (!is_uploaded_file($file['tmp_name'])) {
-            throw new InvalidArgumentException(
+            throw new PdfToolException(
+                'invalid_request',
                 'O arquivo informado não é um upload HTTP válido.'
             );
         }
@@ -95,7 +112,8 @@ final class PdfUpload
         fclose($handle);
 
         if ($header !== '%PDF-') {
-            throw new InvalidArgumentException(
+            throw new PdfToolException(
+                'invalid_pdf',
                 'Somente arquivos PDF são aceitos.'
             );
         }

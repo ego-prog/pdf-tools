@@ -24,8 +24,10 @@ final class PdfCompress
         $this->validateInputFile($inputFile);
 
         if (!isset(self::LEVELS[$level])) {
-            throw new InvalidArgumentException(
-                "Nível de compactação inválido: {$level}"
+            throw new PdfToolException(
+                'invalid_request',
+                'Nível de compactação inválido. Use: '
+                    . implode(', ', array_keys(self::LEVELS)) . '.'
             );
         }
 
@@ -74,11 +76,48 @@ final class PdfCompress
         $command[] = '-sOutputFile=' . $outputFile;
         $command[] = $inputFile;
 
-        $this->process->run($command);
+        $output = $this->process->run($command);
+
+        $this->assertInputWasRead($output);
 
         if (!is_file($outputFile) || filesize($outputFile) === 0) {
             throw new RuntimeException(
                 'O PDF compactado não foi criado corretamente.'
+            );
+        }
+    }
+
+    /**
+     * O Ghostscript termina com exit 0 mesmo quando não consegue abrir o
+     * arquivo (senha errada, PDF corrompido), gerando um PDF em branco.
+     * Por isso a saída precisa ser inspecionada.
+     */
+    private function assertInputWasRead(string $output): void
+    {
+        if (str_contains($output, 'Password did not work')) {
+            throw new PdfToolException(
+                'invalid_password',
+                'A senha informada está incorreta.',
+                422,
+                ['indices' => [0]]
+            );
+        }
+
+        if (str_contains($output, 'requires a password')) {
+            throw new PasswordRequiredException([0]);
+        }
+
+        if (
+            str_contains($output, "Couldn't initialise file")
+            || str_contains($output, 'No pages will be processed')
+        ) {
+            error_log('Ghostscript não leu o PDF: ' . $output);
+
+            throw new PdfToolException(
+                'invalid_pdf',
+                'Não foi possível ler o PDF. Verifique se o arquivo não está corrompido.',
+                422,
+                ['indices' => [0]]
             );
         }
     }
