@@ -97,21 +97,7 @@ final class PdfUpload
             );
         }
 
-        // Verificação por magic bytes (%PDF-) é mais confiável do que
-        // mime_content_type(), que pode retornar application/x-pdf ou
-        // application/octet-stream em PDFs válidos.
-        $handle = @fopen($file['tmp_name'], 'rb');
-
-        if ($handle === false) {
-            throw new InvalidArgumentException(
-                'Não foi possível abrir o arquivo enviado.'
-            );
-        }
-
-        $header = fread($handle, 5);
-        fclose($handle);
-
-        if ($header !== '%PDF-') {
+        if (!PdfFile::hasPdfHeader($file['tmp_name'])) {
             throw new PdfToolException(
                 'invalid_pdf',
                 'Somente arquivos PDF são aceitos.'
