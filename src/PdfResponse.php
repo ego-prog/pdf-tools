@@ -46,12 +46,16 @@ final class PdfResponse
     }
 
     /** @param array<string, mixed> $data */
-    private static function json(int $status, array $data): void
+    public static function json(int $status, array $data): void
     {
         if (!headers_sent()) {
             http_response_code($status);
             header('Content-Type: application/json; charset=UTF-8');
             header('Cache-Control: no-store');
+
+            if ($status === 401) {
+                header('WWW-Authenticate: Bearer');
+            }
         }
 
         echo json_encode($data, JSON_UNESCAPED_UNICODE);

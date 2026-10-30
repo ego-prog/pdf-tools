@@ -5,6 +5,16 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 /* ============================================================
+ * API — /api/v1/* (autenticada por chave)
+ * ============================================================ */
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+
+if (str_starts_with($requestPath, '/api/')) {
+    PdfApi::handle($requestPath);
+    exit;
+}
+
+/* ============================================================
  * GET — renderiza a interface
  * ============================================================ */
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -138,60 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 }
 
 /* ============================================================
- * POST — processamento
+ * POST — processamento pela interface
  *
  * Toda resposta de erro é JSON: {"error": "<código>", "message": ...}.
- * A lógica fica em PdfService; aqui só se lê a requisição e se responde.
  * ============================================================ */
-try {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        throw new PdfToolException(
-            'method_not_allowed',
-            'Método não permitido.',
-            405
-        );
-    }
-
-    // Dentro do try: falha de configuração (binário ausente, diretório
-    // sem permissão) também vira resposta JSON, não um fatal em HTML.
-    $app = require __DIR__ . '/../src/application.php';
-
-    PdfRequest::assertBodyReceived();
-
-    $operation = PdfRequest::string('operation');
-
-    if (!in_array($operation, ['merge', 'compress', 'remove_password'], true)) {
-        throw new PdfToolException(
-            'invalid_operation',
-            'Operação inválida.'
-        );
-    }
-
-    $service = new PdfService($app['process'], new PdfUpload());
-
-    $app['application']->run(
-        fn (string $path): string => match ($operation) {
-            'merge' => $service->merge(
-                $path,
-                PdfRequest::uploads('pdf'),
-                PdfRequest::stringList('password')
-            ),
-            'compress' => $service->compress(
-                $path,
-                PdfRequest::singleUpload('pdf'),
-                PdfRequest::string('level', 'media'),
-                PdfRequest::string('password')
-            ),
-            'remove_password' => $service->removePassword(
-                $path,
-                PdfRequest::singleUpload('pdf'),
-                PdfRequest::string('password')
-            ),
-        },
-        fn (string $resultPath) => PdfResponse::pdf($resultPath)
-    );
-} catch (PdfToolException $exception) {
-    PdfResponse::error($exception);
-} catch (Throwable $exception) {
-    PdfResponse::internalError($exception);
-}
+PdfController::respond(static function (): void {
+    PdfController::assertMethod('POST');
+    PdfController::process(PdfRequest::string('operation'));
+});
