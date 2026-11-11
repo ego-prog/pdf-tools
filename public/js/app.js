@@ -12,6 +12,9 @@ const clearButton = document.getElementById('clearButton');
 const compressionOptions = document.getElementById('compressionOptions');
 const compressionLevel = document.getElementById('compressionLevel');
 
+const sizeOptions = document.getElementById('sizeOptions');
+const maxSize = document.getElementById('maxSize');
+
 const singlePasswordOptions = document.getElementById('singlePasswordOptions');
 const singlePassword = document.getElementById('singlePassword');
 
@@ -38,6 +41,7 @@ function setOperation(newOperation) {
     removeTool.classList.toggle('active', isRemove);
 
     compressionOptions.hidden = !isCompress;
+    sizeOptions.hidden = !isMerge;
     singlePasswordOptions.hidden = isMerge;
 
     fileInput.multiple = isMerge;
@@ -324,6 +328,37 @@ clearButton.addEventListener('click', () => {
 });
 
 /* ------------------------------------------------------------
+ * O que o servidor fez além de unir (cabeçalhos da resposta)
+ * ---------------------------------------------------------- */
+function resultNotes(response) {
+    const notes = [];
+
+    const signed = (response.headers.get('X-Pdf-Signed-Documents') || '')
+        .split(',')
+        .filter(value => value !== '');
+
+    if (signed.length === 1) {
+        notes.push(
+            '1 documento tinha assinatura digital: ela foi substituída por ' +
+            'um aviso, pois não é válida na cópia.'
+        );
+    } else if (signed.length > 1) {
+        notes.push(
+            `${signed.length} documentos tinham assinatura digital: elas ` +
+            'foram substituídas por um aviso, pois não são válidas na cópia.'
+        );
+    }
+
+    const dpi = response.headers.get('X-Pdf-Compression-Dpi');
+
+    if (dpi) {
+        notes.push(`Compactado a ${dpi} dpi para caber no tamanho máximo.`);
+    }
+
+    return notes;
+}
+
+/* ------------------------------------------------------------
  * Envio
  * ---------------------------------------------------------- */
 mergeButton.addEventListener('click', async () => {
@@ -344,6 +379,17 @@ mergeButton.addEventListener('click', async () => {
         for (const item of files) {
             formData.append('pdf[]', item.file);
             formData.append('password[]', item.password);
+        }
+
+        if (maxSize.value.trim() !== '') {
+            const megabytes = Number(maxSize.value.replace(',', '.'));
+
+            if (!Number.isFinite(megabytes) || megabytes <= 0) {
+                showMessage('Informe um tamanho máximo maior que zero.', 'error');
+                return;
+            }
+
+            formData.append('max_bytes', String(Math.floor(megabytes * 1024 * 1024)));
         }
     } else {
         formData.append('pdf', files[0].file);
@@ -433,7 +479,10 @@ mergeButton.addEventListener('click', async () => {
             remove_password: 'Senha removida com sucesso.',
         };
 
-        showMessage(successLabels[operation], 'success');
+        showMessage(
+            [successLabels[operation], ...resultNotes(response)].join(' '),
+            'success'
+        );
         clearPasswordHighlights();
     } catch (error) {
         showMessage(error.message || 'Erro ao processar o PDF.', 'error');

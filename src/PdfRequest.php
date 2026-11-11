@@ -44,6 +44,29 @@ final class PdfRequest
     }
 
     /**
+     * Tamanho máximo em bytes (inteiro positivo). Ausente ou vazio = sem limite.
+     */
+    public static function maxBytes(string $key): ?int
+    {
+        $value = trim(self::string($key));
+
+        if ($value === '') {
+            return null;
+        }
+
+        $bytes = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+        if ($bytes === false) {
+            throw new PdfToolException(
+                'invalid_request',
+                "O campo \"{$key}\" deve ser um número inteiro de bytes maior que zero."
+            );
+        }
+
+        return $bytes;
+    }
+
+    /**
      * Campo enviado como lista (ex.: password[]).
      *
      * @return array<int, string>

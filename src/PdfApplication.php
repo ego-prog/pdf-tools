@@ -11,7 +11,8 @@ final class PdfApplication
     /**
      * Executa uma operação dentro de um workspace temporário.
      *
-     * @param callable(string): string $operation
+     * @param callable(string): PdfResult $operation
+     * @param callable(PdfResult): void   $consumer
      */
     public function run(callable $operation, callable $consumer): void
     {
@@ -20,13 +21,13 @@ final class PdfApplication
         try {
             $result = $operation($workspacePath);
 
-            if (!is_string($result) || $result === '') {
+            if (!$result instanceof PdfResult || $result->path === '') {
                 throw new RuntimeException(
                     'A operação não retornou um arquivo de resultado válido.'
                 );
             }
 
-            if (!is_file($result) || filesize($result) === 0) {
+            if (!is_file($result->path) || filesize($result->path) === 0) {
                 throw new RuntimeException(
                     'O arquivo de resultado não existe ou está vazio.'
                 );

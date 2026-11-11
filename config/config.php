@@ -4,7 +4,10 @@ return [
     'module_name' => 'PDF Tools',
 
     'storage' => [
-        'temporary_path' => __DIR__ . '/../storage/tmp',
+        // Em memória (tmpfs): uploads e resultados nunca vão para o disco.
+        // Criado sob demanda (o /dev/shm é esvaziado a cada boot).
+        // PDF_TOOLS_TMP: só para os testes (tests/run.php).
+        'temporary_path' => getenv('PDF_TOOLS_TMP') ?: '/dev/shm/pdf-tools',
     ],
 
     'tools' => [

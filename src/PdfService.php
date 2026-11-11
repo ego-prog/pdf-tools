@@ -14,6 +14,20 @@ declare(strict_types=1);
  */
 final class PdfService
 {
+    /**
+     * Resoluções tentadas, em ordem, quando o PDF unido passa do limite
+     * de tamanho. 72 dpi é o piso: abaixo disso documentos digitalizados
+     * ficam ilegíveis.
+     */
+    private const COMPRESSION_STEPS = [150, 125, 100, 85, 72];
+
+    /**
+     * Tempo total (segundos, desde o início do merge) para as tentativas
+     * de compactação. Fica abaixo do request_terminate_timeout do pool
+     * (330 s), para responder com erro antes de o PHP-FPM matar o processo.
+     */
+    private const COMPRESSION_DEADLINE_SECONDS = 270;
+
     public function __construct(
         private readonly PdfProcess $process,
         private readonly PdfUpload $upload
@@ -22,11 +36,21 @@ final class PdfService
     /**
      * Une vários PDFs, na ordem recebida.
      *
+     * PDFs com assinatura digital entram com o aviso no lugar da
+     * assinatura (PdfSignatureNotice). Com $maxBytes, o resultado é
+     * compactado progressivamente até caber no limite.
+     *
      * @param list<array>        $files
      * @param array<int, string> $passwords Índice do arquivo => senha
      */
-    public function merge(string $workspace, array $files, array $passwords): string
-    {
+    public function merge(
+        string $workspace,
+        array $files,
+        array $passwords,
+        ?int $maxBytes = null
+    ): PdfResult {
+        $startedAt = microtime(true);
+
         if (count($files) < 2) {
             throw new PdfToolException(
                 'invalid_request',
@@ -60,6 +84,31 @@ final class PdfService
             throw new PasswordRequiredException($missing);
         }
 
+        // Assinaturas digitais: cada PDF assinado é trocado por uma cópia
+        // (sem senha) com o aviso. O upload original não é alterado.
+        $notice        = new PdfSignatureNotice($this->process);
+        $signedIndices = [];
+
+        foreach ($inputFiles as $index => $inputFile) {
+            $noticeFile = $workspace . '/aviso-' . $index . '.pdf';
+
+            try {
+                $signatures = $notice->apply(
+                    $inputFile,
+                    $noticeFile,
+                    $filePasswords[$inputFile] ?? ''
+                );
+            } catch (PdfProcessException $exception) {
+                throw $this->translateQpdfFailure($exception, [$index => $inputFile]);
+            }
+
+            if ($signatures > 0) {
+                unset($filePasswords[$inputFile]);
+                $inputFiles[$index] = $noticeFile;
+                $signedIndices[]    = $index;
+            }
+        }
+
         $outputFile = $workspace . '/resultado.pdf';
 
         try {
@@ -72,7 +121,86 @@ final class PdfService
             throw $this->translateQpdfFailure($exception, $inputFiles);
         }
 
-        return $outputFile;
+        $compressionDpi = null;
+
+        if ($maxBytes !== null && $this->size($outputFile) > $maxBytes) {
+            [$outputFile, $compressionDpi] = $this->fitWithinLimit(
+                $workspace,
+                $outputFile,
+                $maxBytes,
+                $startedAt + self::COMPRESSION_DEADLINE_SECONDS
+            );
+        }
+
+        return new PdfResult($outputFile, $signedIndices, $compressionDpi);
+    }
+
+    /**
+     * Compacta com resolução cada vez menor até o arquivo caber no limite.
+     *
+     * @return array{0: string, 1: int} [arquivo, resolução usada]
+     */
+    private function fitWithinLimit(
+        string $workspace,
+        string $inputFile,
+        int $maxBytes,
+        float $deadline
+    ): array {
+        $compress = new PdfCompress($this->process);
+        $smallest = $this->size($inputFile);
+        $previous = null;
+
+        foreach (self::COMPRESSION_STEPS as $resolution) {
+            $remaining = (int) floor($deadline - microtime(true));
+
+            if ($remaining < 5) {
+                throw new PdfToolException(
+                    'timeout',
+                    'Não houve tempo para compactar o PDF até o tamanho máximo.',
+                    504
+                );
+            }
+
+            $attempt = $workspace . '/compactado-' . $resolution . '.pdf';
+
+            $compress->compressToResolution($inputFile, $attempt, $resolution, $remaining);
+
+            // Só a tentativa atual fica no workspace (em memória).
+            if ($previous !== null) {
+                @unlink($previous);
+            }
+
+            $previous = $attempt;
+            $size     = $this->size($attempt);
+            $smallest = min($smallest, $size);
+
+            if ($size <= $maxBytes) {
+                return [$attempt, $resolution];
+            }
+        }
+
+        throw new PdfToolException(
+            'size_limit_exceeded',
+            sprintf(
+                'Mesmo com a compactação máxima (72 dpi) o PDF ficou com %s, acima do limite de %s.',
+                self::megabytes($smallest),
+                self::megabytes($maxBytes)
+            ),
+            422,
+            ['max_bytes' => $maxBytes, 'smallest_bytes' => $smallest]
+        );
+    }
+
+    private function size(string $file): int
+    {
+        clearstatcache(true, $file);
+
+        return (int) filesize($file);
+    }
+
+    private static function megabytes(int $bytes): string
+    {
+        return number_format($bytes / 1048576, 2, ',', '.') . ' MB';
     }
 
     /**
@@ -83,7 +211,7 @@ final class PdfService
         array $file,
         string $level,
         string $password
-    ): string {
+    ): PdfResult {
         $inputFile = $this->upload->save($file, $workspace, 'entrada.pdf');
 
         if ($this->process->passwordRequired($inputFile)) {
@@ -116,7 +244,7 @@ final class PdfService
             $level
         );
 
-        return $outputFile;
+        return new PdfResult($outputFile);
     }
 
     /**
@@ -126,7 +254,7 @@ final class PdfService
         string $workspace,
         array $file,
         string $password
-    ): string {
+    ): PdfResult {
         $inputFile = $this->upload->save($file, $workspace, 'entrada.pdf');
 
         // Se o PDF não é criptografado, não há nada a remover.
@@ -160,7 +288,7 @@ final class PdfService
             throw $this->translateQpdfFailure($exception, [$inputFile]);
         }
 
-        return $outputFile;
+        return new PdfResult($outputFile);
     }
 
     /**
@@ -192,7 +320,7 @@ final class PdfService
      * arquivo problemático na saída ("qpdf: <caminho>: invalid password"),
      * o que permite apontar qual dos arquivos falhou.
      *
-     * @param string[] $inputFiles
+     * @param array<int, string> $inputFiles Índice do arquivo => caminho
      */
     private function translateQpdfFailure(
         PdfProcessException $exception,

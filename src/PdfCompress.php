@@ -20,8 +20,6 @@ final class PdfCompress
         string $outputFile,
         string $level = 'media'
     ): void {
-        PdfFile::assertValidInput($inputFile);
-
         if (!isset(self::LEVELS[$level])) {
             throw new PdfToolException(
                 'invalid_request',
@@ -29,6 +27,22 @@ final class PdfCompress
                     . implode(', ', array_keys(self::LEVELS)) . '.'
             );
         }
+
+        $this->compressToResolution($inputFile, $outputFile, self::LEVELS[$level]);
+    }
+
+    /**
+     * Reduz as imagens para no máximo $resolution dpi.
+     *
+     * @param ?int $timeoutSeconds limite desta execução (menor que o padrão)
+     */
+    public function compressToResolution(
+        string $inputFile,
+        string $outputFile,
+        int $resolution,
+        ?int $timeoutSeconds = null
+    ): void {
+        PdfFile::assertValidInput($inputFile);
 
         $outputDirectory = dirname($outputFile);
 
@@ -44,8 +58,6 @@ final class PdfCompress
             );
         }
 
-        $resolution = self::LEVELS[$level];
-
         $command = [
             $this->process->ghostscript(),
             '-q',
@@ -57,20 +69,29 @@ final class PdfCompress
             '-dDetectDuplicateImages=true',
             '-dCompressFonts=true',
 
-            '-dDownsampleColorImages=true',
-            '-dColorImageResolution=' . $resolution,
+            // Por padrão o Ghostscript só reduz imagens acima de 1,5× a
+            // resolução pedida e copia JPEGs sem recomprimir: um PDF
+            // digitalizado a 100 dpi não encolhia em nenhum nível.
+            '-dPassThroughJPEGImages=false',
 
-            '-dDownsampleGrayImages=true',
-            '-dGrayImageResolution=' . $resolution,
-
-            '-dDownsampleMonoImages=true',
-            '-dMonoImageResolution=' . $resolution,
+            // JPEG sempre: o filtro automático às vezes escolhe compressão
+            // sem perdas e o arquivo fica maior que o original.
+            '-dAutoFilterColorImages=false',
+            '-dColorImageFilter=/DCTEncode',
+            '-dAutoFilterGrayImages=false',
+            '-dGrayImageFilter=/DCTEncode',
         ];
+
+        foreach (['Color', 'Gray', 'Mono'] as $type) {
+            $command[] = "-dDownsample{$type}Images=true";
+            $command[] = "-d{$type}ImageResolution={$resolution}";
+            $command[] = "-d{$type}ImageDownsampleThreshold=1.0";
+        }
 
         $command[] = '-sOutputFile=' . $outputFile;
         $command[] = $inputFile;
 
-        $output = $this->process->run($command);
+        $output = $this->process->run($command, timeoutSeconds: $timeoutSeconds);
 
         $this->assertInputWasRead($output);
 

@@ -94,6 +94,7 @@ h1 {
 
 /* Opções de compactação */
 .compression-options,
+.size-options,
 .single-password-options {
     margin-top: 20px;
     flex-direction: column;
@@ -102,8 +103,13 @@ h1 {
 
 /* Aplica display: flex SÓ quando NÃO estiver escondido */
 .compression-options:not([hidden]),
+.size-options:not([hidden]),
 .single-password-options:not([hidden]) {
     display: flex;
+}
+
+.size-options small {
+    color: #666;
 }
 
 .single-password-options input.required {

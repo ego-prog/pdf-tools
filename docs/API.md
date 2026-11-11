@@ -48,6 +48,36 @@ Une os PDFs na ordem enviada (mínimo 2).
 |---|---|---|
 | `pdf[]` | arquivo | um por PDF |
 | `password[]` | texto | opcional; na mesma posição do PDF correspondente (vazio se não houver) |
+| `max_bytes` | texto | opcional; tamanho máximo do resultado, em bytes. Sem ele, nada é compactado |
+
+**Tamanho máximo.** Se o PDF unido passar de `max_bytes`, ele é compactado
+com resolução cada vez menor — 150, 125, 100, 85 e 72 dpi — até caber. 72 dpi
+é o piso: se nem assim couber, a resposta é `422 size_limit_exceeded`, com
+`max_bytes` e `smallest_bytes` (o menor tamanho alcançado). Um arquivo acima
+do limite nunca é entregue.
+
+**Assinaturas digitais.** Unir reescreve o PDF, e a assinatura digital
+deixa de ser válida. Por isso, em cada PDF assinado o campo de assinatura é
+removido e entra um aviso, com data, nome e CPF (ou CNPJ) tirados da
+própria assinatura e do certificado:
+
+> Assinado digitalmente no original em 12/03/2026 por Fulano de Tal (CPF 123.456.789-01).
+
+Partes que a assinatura não informa são omitidas. Com várias assinaturas:
+"Assinado digitalmente no original: em 12/03/2026 por A (CPF …); em
+13/03/2026 por B (CPF …)."
+
+O aviso fica sobre o local da assinatura, quando ela era visível. Nos demais
+casos, fica numa faixa acrescentada à borda inferior de cada página do
+documento (a página cresce alguns milímetros; nada do conteúdo é coberto).
+O arquivo enviado não é alterado.
+
+**Cabeçalhos da resposta:**
+
+| Cabeçalho | Exemplo | |
+|---|---|---|
+| `X-Pdf-Signed-Documents` | `0,2` | posições (base 0) dos PDFs que tinham assinatura e receberam o aviso; vazio se nenhum |
+| `X-Pdf-Compression-Dpi` | `100` | resolução usada para caber em `max_bytes`; ausente se não foi preciso compactar |
 
 ### `POST /compress`
 
@@ -90,6 +120,7 @@ as posições dos arquivos com problema (base 0, na ordem de `pdf[]`).
 | 422 | `password_required` | PDF exige senha e nenhuma foi enviada (`indices`) |
 | 422 | `invalid_password` | senha incorreta (`indices`) |
 | 422 | `invalid_pdf` | PDF corrompido ou ilegível (`indices`) |
+| 422 | `size_limit_exceeded` | merge não coube em `max_bytes` nem a 72 dpi (`max_bytes`, `smallest_bytes`) |
 | 500 | `internal_error` | erro inesperado (detalhes só no log do servidor) |
 | 503 | `api_disabled` | nenhuma chave de API cadastrada |
 | 504 | `timeout` | processamento excedeu o tempo limite (120 s por padrão) |
@@ -98,6 +129,17 @@ as posições dos arquivos com problema (base 0, na ordem de `pdf[]`).
 
 - 100 MB por arquivo; 110 MB por requisição; até 20 arquivos.
 - Senhas não podem conter quebras de linha.
+
+## Nada fica gravado
+
+Uploads, arquivos intermediários e o resultado ficam num diretório em
+memória (`/dev/shm/pdf-tools`) e são apagados ao fim de cada requisição. O
+nginx do PDF Tools não grava a resposta em arquivo temporário
+(`fastcgi_max_temp_file_size 0`).
+
+Quem chama a API deve manter a mesma regra: repassar o PDF ao navegador
+conforme ele chega, sem salvar em arquivo nem acumular em memória, como no
+exemplo abaixo.
 
 ## Exemplos
 
@@ -113,35 +155,89 @@ curl -f -o unido.pdf \
 
 ### PHP (Tiro a Tiro)
 
+Une os documentos e envia o PDF direto ao navegador, à medida que chega,
+sem gravar em disco. A chave fica no `.env` (`PDF_TOOLS_KEY`), lida por
+`$_ENV`, como as demais configurações do Tiro a Tiro.
+
 ```php
-function pdfToolsCompress(string $arquivo, string $nivel = 'media'): string
+/**
+ * @param string[] $arquivos caminhos dos PDFs, na ordem desejada
+ */
+function pdfToolsMergeParaNavegador(array $arquivos, ?int $maxBytes, string $nomeDownload): void
 {
-    $ch = curl_init('http://127.0.0.1:8081/api/v1/compress');
+    $campos = [];
+
+    foreach (array_values($arquivos) as $i => $arquivo) {
+        $campos["pdf[{$i}]"]      = new CURLFile($arquivo, 'application/pdf');
+        $campos["password[{$i}]"] = '';
+    }
+
+    if ($maxBytes !== null) {
+        $campos['max_bytes'] = (string) $maxBytes;
+    }
+
+    $status   = 0;
+    $erroJson = '';
+
+    $ch = curl_init('http://127.0.0.1:8081/api/v1/merge');
 
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 300,
-        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . getenv('PDF_TOOLS_KEY')],
-        CURLOPT_POSTFIELDS     => [
-            'pdf'   => new CURLFile($arquivo, 'application/pdf'),
-            'level' => $nivel,
-        ],
+        CURLOPT_POSTFIELDS     => $campos,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT        => 330,
+        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . ($_ENV['PDF_TOOLS_KEY'] ?? '')],
+
+        // Status e cabeçalhos chegam antes do corpo.
+        CURLOPT_HEADERFUNCTION => function ($ch, string $linha) use (&$status): int {
+            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $linha, $m)) {
+                $status = (int) $m[1];
+            }
+
+            return strlen($linha);
+        },
+
+        // Sucesso: cada pedaço do PDF vai direto ao navegador.
+        // Erro: o corpo é um JSON pequeno, guardado para a mensagem.
+        CURLOPT_WRITEFUNCTION => function ($ch, string $pedaco) use (&$status, &$erroJson, $nomeDownload): int {
+            if ($status !== 200) {
+                $erroJson .= $pedaco;
+
+                return strlen($pedaco);
+            }
+
+            if (!headers_sent()) {
+                header('Content-Type: application/pdf');
+                header('Content-Disposition: inline; filename="' . $nomeDownload . '"');
+                header('Cache-Control: no-store');
+            }
+
+            echo $pedaco;
+            flush();
+
+            return strlen($pedaco);
+        },
     ]);
 
-    $corpo  = curl_exec($ch);
-    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    // Sem buffer de saída do PHP (o guard.php usa ob_start).
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+
+    $ok = curl_exec($ch);
     curl_close($ch);
 
-    if ($corpo === false) {
+    if ($ok === false && $status === 0) {
         throw new RuntimeException('PDF Tools indisponível.');
     }
 
     if ($status !== 200) {
-        $erro = json_decode($corpo, true) ?? [];
+        $erro = json_decode($erroJson, true) ?? [];
         throw new RuntimeException($erro['message'] ?? "Erro HTTP {$status}");
     }
-
-    return $corpo; // bytes do PDF
 }
 ```
+
+O nginx do Tiro a Tiro também precisa repassar sem arquivo temporário na
+rota que chama essa função (`fastcgi_max_temp_file_size 0;`) e esperar o
+tempo da compactação (`fastcgi_read_timeout 330s;`).

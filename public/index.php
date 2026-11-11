@@ -92,6 +92,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 </div>
 
                 <div
+                    class="size-options"
+                    id="sizeOptions">
+
+                    <label for="maxSize">
+                        Tamanho máximo do arquivo final (MB, opcional)
+                    </label>
+
+                    <input
+                        type="number"
+                        id="maxSize"
+                        min="0.1"
+                        step="0.1"
+                        inputmode="decimal"
+                        placeholder="Sem limite">
+
+                    <small>
+                        Se o PDF unido passar desse tamanho, ele é compactado
+                        aos poucos até caber (no mínimo 72 dpi).
+                    </small>
+
+                </div>
+
+                <div
                     class="single-password-options"
                     id="singlePasswordOptions"
                     hidden>

@@ -44,11 +44,12 @@ final class PdfController
         $service = new PdfService($app['process'], new PdfUpload());
 
         $app['application']->run(
-            fn (string $path): string => match ($operation) {
+            fn (string $path): PdfResult => match ($operation) {
                 'merge' => $service->merge(
                     $path,
                     PdfRequest::uploads('pdf'),
-                    PdfRequest::stringList('password')
+                    PdfRequest::stringList('password'),
+                    PdfRequest::maxBytes('max_bytes')
                 ),
                 'compress' => $service->compress(
                     $path,
@@ -62,7 +63,7 @@ final class PdfController
                     PdfRequest::string('password')
                 ),
             },
-            fn (string $resultPath) => PdfResponse::pdf($resultPath)
+            fn (PdfResult $result) => PdfResponse::pdf($result)
         );
     }
 

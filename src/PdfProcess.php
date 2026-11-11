@@ -31,16 +31,17 @@ final class PdfProcess
      * Executa um comando externo sem passar por shell.
      *
      * @param string[] $command
-     * @param bool     $allowWarnings exit code 3 do qpdf = warning
+     * @param bool     $allowWarnings  exit code 3 do qpdf = warning
+     * @param ?int     $timeoutSeconds limite menor que o padrão (nunca maior)
      * @return string  Saída combinada (stdout + stderr)
      */
-    public function run(array $command, bool $allowWarnings = false): string
+    public function run(array $command, bool $allowWarnings = false, ?int $timeoutSeconds = null): string
     {
         if ($command === []) {
             throw new RuntimeException('Comando vazio.');
         }
 
-        [$exitCode, $output] = $this->execute($command);
+        [$exitCode, $output] = $this->execute($command, $timeoutSeconds);
 
         $ok = $exitCode === 0
             || ($allowWarnings && $exitCode === 3);
@@ -163,12 +164,16 @@ final class PdfProcess
      * @param string[] $command
      * @return array{0: int, 1: string} [exit code, saída]
      */
-    private function execute(array $command): array
+    private function execute(array $command, ?int $timeoutSeconds = null): array
     {
+        $seconds = $timeoutSeconds === null
+            ? $this->timeoutSeconds
+            : max(1, min($timeoutSeconds, $this->timeoutSeconds));
+
         $command = [
             $this->timeout,
             '--kill-after=' . self::KILL_AFTER_SECONDS,
-            (string) $this->timeoutSeconds,
+            (string) $seconds,
             ...$command,
         ];
 

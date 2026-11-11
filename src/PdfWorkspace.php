@@ -9,7 +9,7 @@ final class PdfWorkspace
     public function __construct(
         private readonly string $basePath
     ) {
-        if (!is_dir($this->basePath)) {
+        if (!is_dir($this->basePath) && !@mkdir($this->basePath, 0700, true) && !is_dir($this->basePath)) {
             throw new RuntimeException(
                 "Diretório temporário não existe: {$this->basePath}"
             );

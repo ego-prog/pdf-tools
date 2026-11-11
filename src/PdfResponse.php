@@ -10,16 +10,26 @@ declare(strict_types=1);
  */
 final class PdfResponse
 {
-    public static function pdf(string $path, string $filename = 'resultado.pdf'): void
+    /**
+     * Cabeçalhos informativos (não alteram o PDF):
+     *   X-Pdf-Signed-Documents: 0,2   arquivos assinados que receberam aviso
+     *   X-Pdf-Compression-Dpi: 100    resolução usada para caber no limite
+     */
+    public static function pdf(PdfResult $result, string $filename = 'resultado.pdf'): void
     {
-        clearstatcache(true, $path);
+        clearstatcache(true, $result->path);
 
         header('Content-Type: application/pdf');
-        header('Content-Length: ' . filesize($path));
+        header('Content-Length: ' . filesize($result->path));
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Cache-Control: no-store');
+        header('X-Pdf-Signed-Documents: ' . implode(',', $result->signedIndices));
 
-        readfile($path);
+        if ($result->compressionDpi !== null) {
+            header('X-Pdf-Compression-Dpi: ' . $result->compressionDpi);
+        }
+
+        readfile($result->path);
     }
 
     public static function error(PdfToolException $exception): void
